@@ -1,6 +1,8 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
+// Ensure Leaflet CSS is loaded via JS import for compatibility across setups
+import 'leaflet/dist/leaflet.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 
