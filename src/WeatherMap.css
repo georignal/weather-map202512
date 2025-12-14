@@ -160,7 +160,7 @@ body {
   padding: 6px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.98);
-  border: 1px solid rgba(16,24,40,0.06);
+  border: 1px solid rgba(16, 24, 40, 0.06);
   color: var(--text-main);
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
   cursor: pointer;
@@ -180,16 +180,20 @@ body {
 
 .sidebar-toggle:active {
   transform: translateY(2px);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
 
 .sidebar-toggle[aria-expanded="true"] {
-  background: rgba(255,255,255,0.14);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 /* Ensure sufficient hit target on small screens */
 @media (max-width: 640px) {
-  .sidebar-toggle { width: 44px; height: 44px; left: 8px; }
+  .sidebar-toggle {
+    width: 44px;
+    height: 44px;
+    left: 8px;
+  }
 }
 
 .sidebar-header {
@@ -330,6 +334,7 @@ body {
   display: inline-block;
   vertical-align: middle;
 }
+
 .alert-marquee {
   display: inline-block;
   white-space: nowrap;
@@ -338,21 +343,30 @@ body {
   animation-timing-function: linear;
   animation-iteration-count: infinite;
 }
+
 .alert-marquee.no-scroll {
   transform: none;
   animation: none;
   display: block;
   text-align: center;
 }
+
 .alert-marquee:focus {
-  outline: 2px solid rgba(255,255,255,0.6);
+  outline: 2px solid rgba(255, 255, 255, 0.6);
 }
+
 .alert-marquee:hover {
   animation-play-state: paused;
 }
+
 @keyframes scroll-left {
-  from { transform: translateX(100%); }
-  to { transform: translateX(-100%); }
+  from {
+    transform: translateX(100%);
+  }
+
+  to {
+    transform: translateX(-100%);
+  }
 }
 
 /* Banner source button */
@@ -361,21 +375,22 @@ body {
   align-items: center;
   gap: 6px;
   color: var(--text-main);
-  background: rgba(255,255,255,0.96);
-  border: 1px solid rgba(16,24,40,0.06);
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(16, 24, 40, 0.06);
   padding: 6px 8px;
   border-radius: 6px;
   text-decoration: none;
   font-size: 0.85rem;
 }
+
 .banner-source-btn:hover {
   background: white;
-  box-shadow: 0 6px 14px rgba(15,23,42,0.08);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
 }
 
 .banner-source-btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.08), 0 6px 14px rgba(15,23,42,0.06);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.08), 0 6px 14px rgba(15, 23, 42, 0.06);
 }
 
 .location-fab:hover {
@@ -750,7 +765,9 @@ body {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .location-info {
@@ -1033,4 +1050,655 @@ body {
   width: 320px;
   max-height: 85vh;
   padding: 20px;
+}
+
+/* ==============================
+   移动端响应式设计
+   ============================== */
+
+/* 平板设备 (768px 及以下) */
+@media (max-width: 768px) {
+  .weather-sidebar {
+    width: calc(100vw - 32px);
+    max-width: 360px;
+    left: 16px;
+    right: 16px;
+    max-height: 60vh;
+    padding: 16px;
+  }
+
+  .sidebar-toggle {
+    width: 44px;
+    height: 44px;
+    left: 12px;
+  }
+
+  .location-fab {
+    width: 52px;
+    height: 52px;
+    right: 12px;
+    bottom: 20px;
+  }
+
+  .leaflet-popup-content-wrapper {
+    max-width: calc(100vw - 40px);
+  }
+
+  .popup-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .layer-controls {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+
+  .layer-btn {
+    padding: 10px 6px;
+    font-size: 0.7rem;
+  }
+
+  .toggle-group {
+    gap: 6px;
+  }
+
+  .toggle-btn {
+    padding: 8px 10px;
+    font-size: 0.75rem;
+  }
+}
+
+/* 手机横屏 (640px 及以下) */
+@media (max-width: 640px) {
+  .weather-sidebar {
+    width: calc(100vw - 24px);
+    max-width: none;
+    left: 12px;
+    right: 12px;
+    max-height: 55vh;
+    padding: 14px;
+    border-radius: 0 0 10px 10px;
+  }
+
+  .sidebar-header-modern {
+    padding: 12px 0 10px 0;
+    margin-bottom: 12px;
+  }
+
+  .sidebar-title-modern {
+    font-size: 1rem;
+  }
+
+  .sidebar-subtitle {
+    font-size: 0.7rem;
+  }
+
+  .sidebar-icon-wrapper {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+  }
+
+  .search-input-modern {
+    padding: 10px 12px 10px 38px;
+    font-size: 16px;
+    /* 防止iOS自动缩放 */
+    border-radius: 8px;
+  }
+
+  .card-modern {
+    padding: 12px;
+    margin-bottom: 10px;
+    border-radius: 10px;
+  }
+
+  .card-title {
+    font-size: 0.75rem;
+  }
+
+  .btn-modern-primary {
+    padding: 12px 14px;
+    font-size: 0.85rem;
+    border-radius: 8px;
+  }
+
+  .btn-modern-secondary {
+    padding: 10px 10px;
+    font-size: 0.75rem;
+    border-radius: 6px;
+  }
+
+  .layer-controls {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+  }
+
+  .layer-btn {
+    padding: 8px 4px;
+    font-size: 0.65rem;
+    border-radius: 8px;
+    gap: 4px;
+  }
+
+  .layer-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .toggle-group {
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+  }
+
+  .toggle-btn {
+    padding: 8px 8px;
+    font-size: 0.7rem;
+  }
+
+  .radar-controls-actions {
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .radar-btn-small {
+    width: 36px;
+    height: 36px;
+  }
+
+  .radar-speed-select {
+    min-width: 80px;
+    font-size: 0.7rem;
+    padding: 8px;
+  }
+
+  .heatmap-labels {
+    font-size: 0.65rem;
+  }
+
+  .progress-count {
+    font-size: 0.7rem;
+  }
+
+  .location-fab {
+    width: 50px;
+    height: 50px;
+    right: 10px;
+    bottom: 16px;
+  }
+
+  /* 弹窗样式优化 */
+  .leaflet-popup-content-wrapper {
+    max-width: calc(100vw - 24px);
+    border-radius: 10px;
+  }
+
+  .leaflet-popup-content {
+    margin: 10px;
+    width: auto !important;
+    min-width: 200px;
+  }
+
+  .popup-header {
+    padding-bottom: 6px;
+    margin-bottom: 8px;
+  }
+
+  .popup-title {
+    font-size: 1rem;
+  }
+
+  .popup-item {
+    font-size: 0.85rem;
+    gap: 6px;
+  }
+
+  /* 警告横幅优化 */
+  .alert-marquee-container {
+    max-width: calc(100vw - 100px);
+  }
+
+  /* 时钟显示优化 */
+  .clock-display {
+    font-size: 0.75rem !important;
+  }
+}
+
+/* 手机竖屏 (480px 及以下) */
+@media (max-width: 480px) {
+  .weather-sidebar {
+    width: calc(100vw - 16px);
+    left: 8px;
+    right: 8px;
+    max-height: 50vh;
+    padding: 12px;
+    font-size: 0.8rem;
+  }
+
+  .sidebar-toggle {
+    width: 42px;
+    height: 42px;
+    left: 8px;
+    border-radius: 6px;
+  }
+
+  .sidebar-header-modern {
+    padding: 10px 0 8px 0;
+    margin-bottom: 10px;
+  }
+
+  .sidebar-title-modern {
+    font-size: 0.95rem;
+  }
+
+  .sidebar-icon-wrapper {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+  }
+
+  .sidebar-icon-wrapper svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .sidebar-close-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 1.25rem;
+  }
+
+  .search-box-modern {
+    margin-bottom: 12px;
+  }
+
+  .search-input-modern {
+    padding: 10px 10px 10px 36px;
+    font-size: 16px;
+  }
+
+  .search-icon-modern {
+    left: 12px;
+  }
+
+  .search-icon-modern svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .card-modern {
+    padding: 10px;
+    margin-bottom: 8px;
+    border-radius: 8px;
+  }
+
+  .card-header {
+    margin-bottom: 10px;
+    gap: 6px;
+  }
+
+  .card-title {
+    font-size: 0.7rem;
+  }
+
+  .location-name {
+    font-size: 0.85rem;
+  }
+
+  .location-temp {
+    font-size: 1rem;
+  }
+
+  .btn-modern-primary {
+    padding: 10px 12px;
+    font-size: 0.8rem;
+    gap: 6px;
+  }
+
+  .btn-modern-secondary {
+    padding: 8px;
+    font-size: 0.7rem;
+  }
+
+  .card-actions {
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  .layer-controls {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+  }
+
+  .layer-btn {
+    padding: 6px 3px;
+    font-size: 0.6rem;
+    gap: 3px;
+    border-radius: 6px;
+  }
+
+  .layer-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .toggle-btn {
+    padding: 7px 6px;
+    font-size: 0.65rem;
+    gap: 4px;
+  }
+
+  .toggle-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .radar-controls-modern {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+
+  .radar-time-display {
+    font-size: 0.8rem;
+  }
+
+  .radar-frame-count {
+    font-size: 0.7rem;
+  }
+
+  .radar-btn-small {
+    width: 34px;
+    height: 34px;
+    border-radius: 6px;
+  }
+
+  .radar-btn-small svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .radar-speed-select {
+    padding: 6px 8px;
+    font-size: 0.65rem;
+    border-radius: 6px;
+  }
+
+  .heatmap-legend-modern {
+    gap: 6px;
+  }
+
+  .heatmap-gradient {
+    height: 12px;
+    border-radius: 6px;
+  }
+
+  .heatmap-labels {
+    font-size: 0.6rem;
+  }
+
+  .progress-bar-modern {
+    height: 6px;
+    margin-bottom: 10px;
+  }
+
+  .progress-count {
+    font-size: 0.65rem;
+  }
+
+  .location-fab {
+    width: 46px;
+    height: 46px;
+    right: 8px;
+    bottom: 14px;
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.35);
+  }
+
+  .location-fab svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  /* 弹窗样式 */
+  .leaflet-popup-content-wrapper {
+    max-width: calc(100vw - 16px);
+    border-radius: 8px;
+  }
+
+  .leaflet-popup-content {
+    margin: 8px;
+    min-width: 180px;
+  }
+
+  .popup-title {
+    font-size: 0.95rem;
+  }
+
+  .popup-item {
+    font-size: 0.8rem;
+    gap: 5px;
+  }
+
+  .popup-value {
+    font-size: 0.85rem;
+  }
+
+  /* 图表容器优化 */
+  .recharts-wrapper {
+    font-size: 0.7rem;
+  }
+
+  /* 滚动条优化 */
+  ::-webkit-scrollbar {
+    width: 4px;
+  }
+}
+
+/* 小屏手机 (375px 及以下) */
+@media (max-width: 375px) {
+  .weather-sidebar {
+    width: calc(100vw - 12px);
+    left: 6px;
+    right: 6px;
+    max-height: 48vh;
+    padding: 10px;
+  }
+
+  .sidebar-toggle {
+    width: 40px;
+    height: 40px;
+    left: 6px;
+  }
+
+  .sidebar-title-modern {
+    font-size: 0.9rem;
+  }
+
+  .sidebar-icon-wrapper {
+    width: 32px;
+    height: 32px;
+  }
+
+  .search-input-modern {
+    padding: 8px 8px 8px 34px;
+  }
+
+  .card-modern {
+    padding: 8px;
+    margin-bottom: 6px;
+  }
+
+  .btn-modern-primary {
+    padding: 9px 10px;
+    font-size: 0.75rem;
+  }
+
+  .btn-modern-secondary {
+    padding: 7px 6px;
+    font-size: 0.65rem;
+  }
+
+  .layer-btn {
+    padding: 5px 2px;
+    font-size: 0.55rem;
+  }
+
+  .toggle-btn {
+    padding: 6px 4px;
+    font-size: 0.6rem;
+  }
+
+  .location-fab {
+    width: 44px;
+    height: 44px;
+    right: 6px;
+    bottom: 12px;
+  }
+}
+
+/* 超大屏幕适配 (1200px 及以上) */
+@media (min-width: 1200px) {
+  .weather-sidebar {
+    width: 360px;
+    max-height: 90vh;
+    padding: 24px;
+  }
+
+  .sidebar-title-modern {
+    font-size: 1.2rem;
+  }
+
+  .card-modern {
+    padding: 16px;
+  }
+}
+
+/* 触摸设备优化 */
+@media (hover: none) and (pointer: coarse) {
+
+  /* 增加触摸目标大小 */
+  .btn-modern-primary,
+  .btn-modern-secondary,
+  .toggle-btn,
+  .layer-btn {
+    min-height: 44px;
+  }
+
+  .sidebar-toggle,
+  .location-fab,
+  .radar-btn-small {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .sidebar-close-btn {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  /* 禁用hover效果 */
+  .btn-modern-primary:hover,
+  .btn-modern-secondary:hover,
+  .toggle-btn:hover,
+  .layer-btn:hover,
+  .sidebar-toggle:hover,
+  .location-fab:hover {
+    transform: none;
+  }
+
+  /* 添加active效果 */
+  .btn-modern-primary:active,
+  .btn-modern-secondary:active,
+  .toggle-btn:active,
+  .layer-btn:active {
+    transform: scale(0.98);
+    opacity: 0.9;
+  }
+
+  .sidebar-toggle:active,
+  .location-fab:active {
+    transform: scale(0.95);
+  }
+}
+
+/* 横屏手机特殊处理 */
+@media (max-height: 500px) and (orientation: landscape) {
+  .weather-sidebar {
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+
+  .sidebar-header-modern {
+    padding: 8px 0 6px 0;
+    margin-bottom: 8px;
+  }
+
+  .card-modern {
+    margin-bottom: 6px;
+    padding: 8px;
+  }
+
+  .location-fab {
+    bottom: 10px;
+    right: 10px;
+    width: 42px;
+    height: 42px;
+  }
+
+  .sidebar-toggle {
+    width: 38px;
+    height: 38px;
+  }
+}
+
+/* 深色模式支持（如果系统开启深色模式） */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --glass-bg: rgba(30, 41, 59, 0.9);
+    --glass-border: rgba(71, 85, 105, 0.5);
+    --text-main: #f1f5f9;
+    --text-sub: #94a3b8;
+  }
+}
+
+/* 减少动画 - 尊重用户偏好 */
+@media (prefers-reduced-motion: reduce) {
+
+  .weather-sidebar,
+  .btn-modern-primary,
+  .btn-modern-secondary,
+  .toggle-btn,
+  .layer-btn,
+  .sidebar-toggle,
+  .location-fab,
+  .card-modern,
+  .leaflet-popup {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  .theme-base::before {
+    animation: none !important;
+  }
+
+  .alert-marquee {
+    animation: none !important;
+    transform: none !important;
+  }
+}
+
+/* 安全区域适配 (iPhone X 及更高型号) */
+@supports (padding: max(0px)) {
+  .weather-sidebar {
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+
+  .location-fab {
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .sidebar-toggle {
+    left: max(8px, env(safe-area-inset-left));
+  }
 }
