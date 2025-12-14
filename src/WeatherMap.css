@@ -152,19 +152,19 @@ body {
   position: absolute;
   left: 12px;
   z-index: 999;
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 6px;
-  border-radius: 8px;
+  padding: 8px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.98);
-  border: 1px solid rgba(16, 24, 40, 0.06);
-  color: var(--text-main);
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+  border: 1px solid rgba(16, 24, 40, 0.15);
+  color: #1e293b;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.2);
   cursor: pointer;
-  transition: background 0.15s ease, transform 0.12s ease, box-shadow 0.12s ease;
+  transition: all 0.2s ease;
 }
 
 .sidebar-toggle:hover {
@@ -461,10 +461,40 @@ body {
 }
 
 .popup-title {
-  font-size: 1.1rem;
-  font-weight: 700;
+  font-size: 1.25rem;
+  font-weight: 800;
   margin: 0;
-  color: var(--text-main);
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: -0.02em;
+}
+
+.popup-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #2563eb;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.popup-action-btn:hover {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+  transform: translateY(-1px);
+}
+
+.popup-action-btn:active {
+  transform: translateY(0);
 }
 
 .popup-grid {

@@ -2200,8 +2200,7 @@ function WeatherMap() {
                         {weather.city}
                         <button
                           onClick={speakWeather}
-                          className="btn"
-                          style={{ marginLeft: 8, padding: '2px 6px', height: 24, verticalAlign: 'middle', border: 'none', background: 'transparent', color: '#2563eb' }}
+                          className="popup-action-btn"
                           title="音声読み上げ"
                         >
                           <Volume2 size={16} />
