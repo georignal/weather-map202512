@@ -13,12 +13,55 @@ body {
   margin: 0;
   padding: 0;
   overflow: hidden;
+  /* 防止点击时的滚动 */
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  /* 添加这些属性来防止抖动 */
+  will-change: scroll-position;
+  transform: translateZ(0);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   /* Prevent global scrollbar */
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   color: var(--text-main);
 }
 
-/* Glassmorphism Sidebar - Top Dropdown */
+/* 确保根容器不会滚动 */
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 优化主容器，防止布局抖动 */
+.weather-map-container {
+  height: 100vh;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+  /* 使用 contain 来隔离布局 */
+  contain: layout style paint;
+  /* GPU 加速 */
+  transform: translateZ(0);
+  will-change: contents;
+}
+
+/* 优化地图容器，防止地图加载时的抖动 */
+.leaflet-container {
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  /* 防止地图瓦片加载时的布局变化 */
+  contain: layout style paint;
+  /* 确保地图容器有固定尺寸 */
+  height: 100% !important;
+  width: 100% !important;
+}
+
+/* 优化侧边栏，延迟动画直到页面稳定 */
 .weather-sidebar {
   position: absolute;
   top: 0;
@@ -35,19 +78,65 @@ body {
   border-top: none;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12), 0 4px 12px rgba(0, 0, 0, 0.08);
   padding: 12px;
-  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
-    visibility 0.4s,
-    opacity 0.3s ease,
+  /* 初始状态：延迟显示动画 */
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s,
+    opacity 0.3s ease 0.1s,
     box-shadow 0.3s ease;
+  will-change: transform, opacity;
+  transform: translateZ(0);
   display: flex;
   flex-direction: column;
   gap: 8px;
   opacity: 1;
   font-size: 0.85rem;
+  /* 使用 contain 隔离布局 */
+  contain: layout style paint;
 }
 
+/* 防止字体加载导致的布局变化 */
+.weather-sidebar,
+.sidebar-toggle,
+.location-fab {
+  font-display: swap;
+  /* 确保文本有固定高度 */
+  line-height: 1.5;
+}
+
+/* 优化所有按钮，防止点击时的抖动 */
+.btn,
+.sidebar-toggle,
+.location-fab {
+  /* 使用 transform 而不是改变布局属性 */
+  will-change: transform, background-color;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* 优化进度条，防止更新时的抖动 */
+.wards-progress {
+  height: 4px;
+  background: #e2e8f0;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 8px;
+  /* 使用 contain 隔离 */
+  contain: layout style;
+}
+
+.wards-progress-bar {
+  height: 100%;
+  background: var(--primary-color);
+  /* 使用 transform 而不是 width 来动画，性能更好 */
+  transition: transform 0.3s ease;
+  transform-origin: left;
+}
+
+/* 优化 banner，防止高度变化时的抖动 */
+/* 在 WeatherMap.js 中对应的 banner 元素也需要优化 */
+
+/* Glassmorphism Sidebar - Top Dropdown */
 .weather-sidebar.collapsed {
-  transform: translateY(-100%);
+  transform: translateY(-100%) translateZ(0);
   visibility: hidden;
   overflow: hidden;
   opacity: 0;
@@ -294,11 +383,52 @@ body {
 }
 
 /* Popup Styling Improvements */
+/* 优化 Leaflet Popup，防止打开时的布局抖动 */
 .leaflet-popup-content-wrapper {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(8px);
   border-radius: 12px;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  /* 防止布局变化 */
+  contain: layout style paint;
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+/* 防止 popup 打开时的动画导致布局抖动 */
+.leaflet-popup {
+  /* 使用 GPU 加速 */
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* 优化 popup 打开动画 */
+.leaflet-popup-close-button {
+  /* 防止按钮点击时的布局变化 */
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+/* 防止地图容器在 popup 打开时移动 */
+.leaflet-container {
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  /* 防止地图移动时的布局变化 */
+  contain: layout style paint;
+  height: 100% !important;
+  width: 100% !important;
+  /* 防止滚动导致的布局变化 */
+  overflow: hidden;
+}
+
+/* 优化地图移动动画，使其更平滑 */
+.leaflet-pane {
+  will-change: transform;
+  transform: translateZ(0);
 }
 
 .popup-header {
@@ -354,6 +484,9 @@ body {
   transition: background 1s ease;
   position: relative;
   overflow: hidden;
+  /* 添加 GPU 加速 */
+  will-change: background;
+  transform: translateZ(0);
 }
 
 /* Sunny Theme: Warm gold with rotating sunburst effect */
@@ -447,4 +580,457 @@ body {
 .weather-sidebar>* {
   position: relative;
   z-index: 1;
+}
+
+/* 优化主题切换动画 */
+.theme-base {
+  transition: background 1s ease;
+  position: relative;
+  overflow: hidden;
+  /* 添加 GPU 加速 */
+  will-change: background;
+  transform: translateZ(0);
+}
+
+/* 优化 banner 高度测量，减少重排 */
+/* 在 WeatherMap.js 中，banner 的测量应该使用防抖 */
+
+/* Modern Sidebar Styles */
+.sidebar-header-modern {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0 12px 0;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.6);
+  margin-bottom: 16px;
+}
+
+.sidebar-icon-wrapper {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #e0f2fe 0%, #dbeafe 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.15);
+}
+
+.sidebar-title-modern {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0;
+  color: #1e293b;
+  line-height: 1.2;
+}
+
+.sidebar-subtitle {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.sidebar-close-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  transition: all 0.2s;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.sidebar-close-btn:hover {
+  background: rgba(226, 232, 240, 0.5);
+  color: #1e293b;
+}
+
+/* Modern Search Box */
+.search-box-modern {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.search-icon-modern {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.search-input-modern {
+  width: 100%;
+  padding: 12px 14px 12px 42px;
+  border-radius: 10px;
+  border: 1.5px solid #e2e8f0;
+  background: rgba(255, 255, 255, 0.95);
+  font-size: 0.875rem;
+  transition: all 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.search-input-modern:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1), 0 2px 8px rgba(0, 0, 0, 0.08);
+  background: white;
+}
+
+/* Modern Card Design */
+.card-modern {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(8px);
+  border-radius: 12px;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  padding: 14px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s;
+}
+
+.card-modern:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: rgba(226, 232, 240, 1);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.card-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #475569;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.card-content {
+  margin-bottom: 12px;
+}
+
+/* Status Styles */
+.status-loading,
+.status-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.status-error {
+  color: #ef4444;
+}
+
+.status-placeholder {
+  font-size: 0.875rem;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.spinner-small {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #e2e8f0;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.location-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.location-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.location-temp {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #2563eb;
+}
+
+/* Modern Buttons */
+.btn-modern-primary {
+  width: 100%;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+}
+
+.btn-modern-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+}
+
+.btn-modern-primary:active {
+  transform: translateY(0);
+}
+
+.btn-modern-secondary {
+  flex: 1;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #475569;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-modern-secondary:hover {
+  background: white;
+  border-color: #cbd5e1;
+  color: #1e293b;
+}
+
+.card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* Modern Toggle Group */
+.toggle-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.toggle-btn {
+  padding: 10px 12px;
+  background: rgba(248, 250, 252, 0.8);
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.toggle-btn:hover {
+  background: rgba(241, 245, 249, 0.9);
+  border-color: #cbd5e1;
+}
+
+.toggle-btn.active {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: white;
+  border-color: #2563eb;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+}
+
+/* Layer Controls */
+.layer-controls {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.layer-btn {
+  padding: 12px 8px;
+  background: rgba(248, 250, 252, 0.8);
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.layer-btn:hover {
+  background: rgba(241, 245, 249, 0.9);
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+}
+
+.layer-btn.active {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: white;
+  border-color: #2563eb;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+}
+
+/* Radar Controls Modern */
+.radar-controls-modern {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(226, 232, 240, 0.6);
+}
+
+.radar-controls-header {
+  margin-bottom: 10px;
+}
+
+.radar-time-display {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.radar-frame-count {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: #64748b;
+  margin-left: 6px;
+}
+
+.radar-controls-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.radar-btn-small {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: rgba(248, 250, 252, 0.8);
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: #64748b;
+}
+
+.radar-btn-small:hover {
+  background: rgba(241, 245, 249, 0.9);
+  border-color: #cbd5e1;
+}
+
+.radar-speed-select {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  background: white;
+  font-size: 0.75rem;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.radar-speed-select:hover {
+  border-color: #cbd5e1;
+}
+
+.radar-progress-modern {
+  display: flex;
+  gap: 2px;
+  height: 4px;
+}
+
+.radar-progress-dot {
+  flex: 1;
+  height: 100%;
+  border-radius: 2px;
+  background: #e2e8f0;
+  transition: background 0.2s;
+}
+
+.radar-progress-dot.played {
+  background: #93c5fd;
+}
+
+.radar-progress-dot.current {
+  background: #2563eb;
+}
+
+/* Heatmap Legend Modern */
+.heatmap-legend-modern {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.heatmap-gradient {
+  height: 16px;
+  width: 100%;
+  border-radius: 8px;
+  background: linear-gradient(to right, #0000ff, #00ffff, #00ff00, #ffff00, #ff0000);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.heatmap-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: #64748b;
+}
+
+/* Progress Bar Modern */
+.progress-bar-modern {
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #2563eb 0%, #3b82f6 100%);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 8px rgba(37, 99, 235, 0.4);
+}
+
+.progress-count {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+/* Update Sidebar Width */
+.weather-sidebar {
+  width: 320px;
+  max-height: 85vh;
+  padding: 20px;
 }

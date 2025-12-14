@@ -42,6 +42,19 @@ L.Icon.Default.mergeOptions({
   shadowUrl: require('leaflet/dist/images/marker-shadow.png')
 });
 
+// 在文件顶部添加防抖工具函数
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
 function WeatherMap() {
   const [weather, setWeather] = useState(null);
 
@@ -117,9 +130,11 @@ function WeatherMap() {
   const [radarTimestamps, setRadarTimestamps] = useState([]);
   const [radarIndex, setRadarIndex] = useState(-1);
   const [isRadarPlaying, setIsRadarPlaying] = useState(false);
+  const [radarPlaySpeed, setRadarPlaySpeed] = useState(1000); // 默认 1 秒一帧
   const animationRef = useRef(null);
 
   const markerRef = useRef(null);
+  const mapRef = useRef(null); // 用于存储地图实例
   const bannerRef = useRef(null);
   // JMA Alert State
   const [bannerAlert, setBannerAlert] = useState(null);
@@ -134,15 +149,20 @@ function WeatherMap() {
       return;
     }
     const el = bannerRef.current;
-    const update = () => {
+
+    // 使用防抖来减少更新频率
+    const update = debounce(() => {
       try {
         const h = el.getBoundingClientRect().height || BANNER_HEIGHT;
         setBannerHeight(h);
       } catch (e) {
         setBannerHeight(BANNER_HEIGHT);
       }
-    };
+    }, 100); // 100ms 防抖
+
+    // 初始测量
     update();
+
     let ro;
     if (typeof ResizeObserver !== 'undefined') {
       ro = new ResizeObserver(() => update());
@@ -479,6 +499,97 @@ function WeatherMap() {
     fetchAllWards();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 获取地图实例的组件
+  function MapRefSetter() {
+    const map = useMap();
+    useEffect(() => {
+      mapRef.current = map;
+    }, [map]);
+    return null;
+  }
+
+  // 直接控制地图飞行动画的函数（主流地图的"缩小→移动→放大"效果）
+  function flyToLocation(targetCenter, targetZoom = null) {
+    const map = mapRef.current;
+    if (!map) {
+      console.warn('flyToLocation: Map not available');
+      return;
+    }
+
+    const [targetLat, targetLon] = targetCenter;
+    if (typeof targetLat !== 'number' || typeof targetLon !== 'number') {
+      console.warn('flyToLocation: Invalid coordinates');
+      return;
+    }
+
+    const currentCenter = map.getCenter();
+    const currentZoom = map.getZoom();
+    const finalZoom = targetZoom || currentZoom;
+
+    // 计算距离
+    let dist = 0;
+    try {
+      dist = map.distance([currentCenter.lat, currentCenter.lng], targetCenter);
+    } catch (e) {
+      dist = 100000;
+    }
+
+    if (dist < 100) {
+      // 距离太近，不需要动画
+      return;
+    }
+
+    if (dist > 30000) {
+      // 远距离：先缩小，再移动并放大
+      let zoomOut = 5;
+      if (dist < 100000) zoomOut = 7;
+      else if (dist < 300000) zoomOut = 6;
+      else if (dist < 600000) zoomOut = 5;
+      else zoomOut = 4;
+
+      zoomOut = Math.min(zoomOut, currentZoom - 2);
+      if (zoomOut < 3) zoomOut = 3;
+
+      // Step 1: 缩小
+      map.flyTo(currentCenter, zoomOut, {
+        animate: true,
+        duration: 0.5
+      });
+
+      // Step 2: 缩小完成后飞到新位置并放大
+      map.once('zoomend', () => {
+        map.flyTo(targetCenter, finalZoom, {
+          animate: true,
+          duration: 1.0
+        });
+
+        map.once('moveend', () => {
+          try {
+            if (markerRef.current) markerRef.current.openPopup();
+          } catch (e) { }
+        });
+      });
+
+    } else {
+      // 短距离：直接飞过去
+      let duration = 0.8;
+      if (dist < 5000) duration = 0.5;
+      else if (dist < 15000) duration = 0.6;
+
+      map.flyTo(targetCenter, finalZoom, {
+        animate: true,
+        duration: duration
+      });
+
+      map.once('moveend', () => {
+        try {
+          if (markerRef.current) markerRef.current.openPopup();
+        } catch (e) { }
+      });
+    }
+  }
+
   // 点击地图触发
   function MapClickHandler() {
     const map = useMapEvents({
@@ -486,30 +597,13 @@ function WeatherMap() {
         const { lat, lng } = e.latlng;
         console.log('Map clicked at lat/lon:', lat, lng);
 
-        // First move the map to the clicked location so popup auto-pan works
+        // 使用 flyToLocation 进行动画（会自动处理距离判断）
+        flyToLocation([lat, lng]);
+
         setMapCenter([lat, lng]);
 
         // Then fetch weather for clicked point
         await fetchWeatherByLatLon(lat, lng);
-
-        // Open popup after map finishes panning to ensure marker exists at new center
-        try {
-          if (map) {
-            let opened = false;
-            const openFn = () => {
-              try { if (markerRef.current) markerRef.current.openPopup(); } catch (e) { }
-              opened = true;
-            };
-            map.once('moveend', openFn);
-            // Fallback: if no moveend fired in reasonable time, try opening after 800ms
-            setTimeout(() => { if (!opened) openFn(); }, 800);
-          } else {
-            // No map reference - fallback to timeout-based open
-            setTimeout(() => { try { if (markerRef.current) markerRef.current.openPopup(); } catch (e) { } }, 500);
-          }
-        } catch (e) {
-          console.warn('Error ensuring popup open after click', e);
-        }
       },
     });
     return null;
@@ -518,52 +612,523 @@ function WeatherMap() {
   // Set view component to update map center when mapCenter changes
   function MapViewSetter({ center }) {
     const map = useMap();
+    const isInitialMount = useRef(true);
+    const prevCenterRef = useRef(null);
+    const isAnimating = useRef(false);
+
+    // 将坐标转换为字符串以便 React 正确检测变化
+    const centerKey = center ? `${center[0]},${center[1]}` : '';
+
     useEffect(() => {
-      if (center && map) {
-        map.flyTo(center, map.getZoom(), { duration: 1.5 });
+      console.log('MapViewSetter useEffect triggered, centerKey:', centerKey);
+
+      if (!center || !map || center.length !== 2) {
+        console.log('MapViewSetter: Invalid center or map', { center, hasMap: !!map });
+        return;
       }
-    }, [center, map]);
+
+      const [currLat, currLon] = center;
+
+      // 验证坐标有效性
+      if (typeof currLat !== 'number' || typeof currLon !== 'number' ||
+        isNaN(currLat) || isNaN(currLon)) {
+        console.log('MapViewSetter: Invalid coordinates', { currLat, currLon });
+        return;
+      }
+
+      // 跳过初始挂载
+      if (isInitialMount.current) {
+        console.log('MapViewSetter: Skipping initial mount');
+        isInitialMount.current = false;
+        prevCenterRef.current = center;
+        return;
+      }
+
+      // 如果正在动画中，跳过
+      if (isAnimating.current) {
+        console.log('MapViewSetter: Animation in progress, skipping');
+        return;
+      }
+
+      // 检查是否真的需要移动
+      const prev = prevCenterRef.current;
+      if (prev && prev[0] === currLat && prev[1] === currLon) {
+        console.log('MapViewSetter: Same location, skipping');
+        return;
+      }
+
+      // 计算距离
+      let dist = 0;
+      if (prev && prev.length === 2) {
+        try {
+          dist = map.distance(prev, center);
+        } catch (e) {
+          dist = 100000; // 如果计算失败，假设是远距离
+        }
+      } else {
+        dist = 100000; // 没有前一个位置，假设是远距离
+      }
+
+      console.log('MapViewSetter: Distance calculated', { prev, center, dist });
+
+      // 如果距离太小，不需要动画（降低到10米）
+      if (dist < 10) {
+        console.log('MapViewSetter: Distance too small, skipping animation');
+        prevCenterRef.current = center;
+        return;
+      }
+
+      console.log('MapViewSetter: Starting animation to', center, 'distance:', dist);
+
+      isAnimating.current = true;
+      prevCenterRef.current = center;
+      const originalZoom = map.getZoom();
+
+      // 主流地图的"缩小 → 移动 → 放大"动画
+      if (dist > 30000) {
+        // 远距离：先缩小，再移动并放大
+        // 根据距离计算缩小程度
+        let zoomOut = 5;
+        if (dist < 100000) zoomOut = 7;
+        else if (dist < 300000) zoomOut = 6;
+        else if (dist < 600000) zoomOut = 5;
+        else zoomOut = 4;
+
+        // 确保缩小级别合理
+        zoomOut = Math.min(zoomOut, originalZoom - 2);
+        if (zoomOut < 3) zoomOut = 3;
+
+        // Step 1: 缩小当前位置
+        map.flyTo(map.getCenter(), zoomOut, {
+          animate: true,
+          duration: 0.5
+        });
+
+        // Step 2: 缩小完成后，飞到新位置并放大
+        const handleZoomEnd = () => {
+          map.off('zoomend', handleZoomEnd);
+
+          map.flyTo(center, originalZoom, {
+            animate: true,
+            duration: 1.0
+          });
+
+          // 动画完成后打开弹窗
+          const handleMoveEnd = () => {
+            map.off('moveend', handleMoveEnd);
+            isAnimating.current = false;
+            try {
+              if (markerRef.current) markerRef.current.openPopup();
+            } catch (e) { }
+          };
+          map.once('moveend', handleMoveEnd);
+        };
+        map.once('zoomend', handleZoomEnd);
+
+      } else {
+        // 短距离：直接平滑移动
+        let duration = 0.8;
+        if (dist < 5000) duration = 0.5;
+        else if (dist < 15000) duration = 0.6;
+
+        map.flyTo(center, originalZoom, {
+          animate: true,
+          duration: duration
+        });
+
+        // 动画完成后打开弹窗
+        const handleMoveEnd = () => {
+          map.off('moveend', handleMoveEnd);
+          isAnimating.current = false;
+          try {
+            if (markerRef.current) markerRef.current.openPopup();
+          } catch (e) { }
+        };
+        map.once('moveend', handleMoveEnd);
+      }
+
+    }, [centerKey, map]); // 使用 centerKey 字符串作为依赖项
+
     return null;
   }
 
-  // Heatmap Layer Component
+  // 改进的热力图组件 - 使用 Canvas 绘制连续颜色场（类似雷达图效果）
   function HeatmapLayer({ data, visible }) {
     const map = useMap();
+    const layerRef = useRef(null);
+    const canvasRef = useRef(null);
+    const dataRef = useRef(null); // 用于存储数据
 
     useEffect(() => {
-      if (!map || !visible) return;
-
-      const points = data
-        .filter(w => w.status === 'done' && w.main?.temp !== undefined)
-        .map(w => [w.lat, w.lon, (w.main.temp + 10) * 1.5]); // Scale temp to intensity (experimental)
-
-      if (points.length === 0) return;
-
-      const heat = L.heatLayer(points, {
-        radius: 40,
-        blur: 25,
-        maxZoom: 13,
-        max: 75, // Adjusted so that ~0C is blue and ~40C is red
-        gradient: {
-          0.2: '#0000ff',
-          0.4: '#00ffff',
-          0.6: '#00ff00',
-          0.8: '#ffff00',
-          1.0: '#ff0000'
+      if (!map || !visible) {
+        if (layerRef.current) {
+          try {
+            map.removeLayer(layerRef.current);
+          } catch (e) { }
+          layerRef.current = null;
         }
-      });
+        if (canvasRef.current && canvasRef.current.parentNode) {
+          canvasRef.current.parentNode.removeChild(canvasRef.current);
+        }
+        return;
+      }
 
-      heat.addTo(map);
+      const validData = data.filter(w =>
+        w.status === 'done' &&
+        w.main?.temp !== undefined &&
+        !isNaN(w.main.temp)
+      );
+
+      if (validData.length === 0) {
+        // 如果没有数据，清理图层
+        if (layerRef.current) {
+          try {
+            map.removeLayer(layerRef.current);
+          } catch (e) { }
+          layerRef.current = null;
+        }
+        return;
+      }
+
+      // 存储数据到 ref，以便在 drawHeatmap 中访问
+      dataRef.current = validData;
+
+      // 反距离加权插值
+      function idwInterpolation(lat, lon, points, power = 2) {
+        let numerator = 0;
+        let denominator = 0;
+
+        for (const point of points) {
+          const [px, py, value] = point;
+          const distance = Math.sqrt(Math.pow(lat - px, 2) + Math.pow(lon - py, 2));
+
+          if (distance < 0.0001) return value;
+
+          const weight = 1 / Math.pow(distance, power);
+          numerator += weight * value;
+          denominator += weight;
+        }
+
+        return denominator > 0 ? numerator / denominator : null;
+      }
+
+      // 温度转颜色（RGB值）
+      function tempToRGB(temp, minTemp, maxTemp) {
+        if (temp === null) return [0, 0, 0, 0];
+        const normalized = Math.max(0, Math.min(1, (temp - minTemp) / (maxTemp - minTemp || 1)));
+
+        let r, g, b;
+        if (normalized < 0.2) {
+          // 蓝色 (冷)
+          const t = normalized / 0.2;
+          r = 0;
+          g = Math.floor(100 + t * 155);
+          b = Math.floor(200 + t * 55);
+        } else if (normalized < 0.4) {
+          // 青色到绿色
+          const t = (normalized - 0.2) / 0.2;
+          r = Math.floor(t * 50);
+          g = Math.floor(255 - t * 100);
+          b = Math.floor(255 - t * 200);
+        } else if (normalized < 0.6) {
+          // 绿色到黄色
+          const t = (normalized - 0.4) / 0.2;
+          r = Math.floor(50 + t * 205);
+          g = 255;
+          b = Math.floor(55 - t * 55);
+        } else if (normalized < 0.8) {
+          // 黄色到橙色
+          const t = (normalized - 0.6) / 0.2;
+          r = 255;
+          g = Math.floor(255 - t * 100);
+          b = 0;
+        } else {
+          // 橙色到红色 (热)
+          const t = (normalized - 0.8) / 0.2;
+          r = 255;
+          g = Math.floor(155 - t * 155);
+          b = 0;
+        }
+
+        return [r, g, b, 0.7]; // 增加透明度让效果更明显
+      }
+
+      // 绘制函数
+      function drawHeatmap() {
+        if (!canvasRef.current || !map || !dataRef.current || dataRef.current.length === 0) {
+          return;
+        }
+
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        const container = map.getContainer();
+
+        if (!container || container.offsetWidth === 0 || container.offsetHeight === 0) {
+          return;
+        }
+
+        // 设置画布尺寸
+        canvas.width = container.offsetWidth;
+        canvas.height = container.offsetHeight;
+
+        // 清空画布
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const bounds = map.getBounds();
+        const points = dataRef.current.map(w => [w.lat, w.lon, w.main.temp]);
+        const temps = points.map(p => p[2]);
+        const minTemp = Math.min(...temps);
+        const maxTemp = Math.max(...temps);
+
+        if (minTemp === maxTemp) {
+          // 如果所有温度相同，使用单一颜色
+          const [r, g, b, a] = tempToRGB(minTemp, minTemp, minTemp + 1);
+          ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          return;
+        }
+
+        // 根据缩放级别调整网格密度
+        const zoom = map.getZoom();
+        const gridSize = Math.max(50, Math.min(120, 150 - zoom * 5));
+
+        const stepLat = (bounds.getNorth() - bounds.getSouth()) / gridSize;
+        const stepLon = (bounds.getEast() - bounds.getWest()) / gridSize;
+
+        // 创建图像数据
+        const imageData = ctx.createImageData(canvas.width, canvas.height);
+        const dataArray = imageData.data;
+
+        // 生成网格并插值
+        for (let i = 0; i < gridSize; i++) {
+          for (let j = 0; j < gridSize; j++) {
+            const lat = bounds.getSouth() + i * stepLat;
+            const lon = bounds.getWest() + j * stepLon;
+            const temp = idwInterpolation(lat, lon, points, 2);
+
+            if (temp === null) continue;
+
+            // 转换为像素坐标
+            const point = map.latLngToContainerPoint([lat, lon]);
+            const x = Math.floor(point.x);
+            const y = Math.floor(point.y);
+
+            if (x < 0 || x >= canvas.width || y < 0 || y >= canvas.height) continue;
+
+            // 获取颜色
+            const [r, g, b, a] = tempToRGB(temp, minTemp, maxTemp);
+            const alpha = Math.floor(a * 255);
+
+            // 绘制一个区域（让颜色更连续）
+            const radius = 6; // 增加半径让效果更明显
+            for (let dx = -radius; dx <= radius; dx++) {
+              for (let dy = -radius; dy <= radius; dy++) {
+                const px = x + dx;
+                const py = y + dy;
+
+                if (px < 0 || px >= canvas.width || py < 0 || py >= canvas.height) continue;
+
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist > radius) continue;
+
+                // 距离衰减
+                const fade = 1 - (dist / radius);
+                const finalAlpha = Math.floor(alpha * fade);
+
+                const idx = (py * canvas.width + px) * 4;
+
+                // Alpha 混合
+                const existingA = dataArray[idx + 3];
+                if (existingA === 0) {
+                  dataArray[idx] = r;
+                  dataArray[idx + 1] = g;
+                  dataArray[idx + 2] = b;
+                  dataArray[idx + 3] = finalAlpha;
+                } else {
+                  const newAlpha = finalAlpha / 255;
+                  const oldAlpha = existingA / 255 * (1 - newAlpha);
+                  const combinedAlpha = newAlpha + oldAlpha;
+
+                  dataArray[idx] = (r * newAlpha + dataArray[idx] * oldAlpha) / combinedAlpha;
+                  dataArray[idx + 1] = (g * newAlpha + dataArray[idx + 1] * oldAlpha) / combinedAlpha;
+                  dataArray[idx + 2] = (b * newAlpha + dataArray[idx + 2] * oldAlpha) / combinedAlpha;
+                  dataArray[idx + 3] = combinedAlpha * 255;
+                }
+              }
+            }
+          }
+        }
+
+        // 应用图像数据
+        ctx.putImageData(imageData, 0, 0);
+
+        // 应用模糊效果让过渡更平滑（类似雷达图）
+        if (ctx.filter !== undefined) {
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = canvas.width;
+          tempCanvas.height = canvas.height;
+          const tempCtx = tempCanvas.getContext('2d');
+          tempCtx.drawImage(canvas, 0, 0);
+
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.filter = 'blur(15px)';
+          ctx.drawImage(tempCanvas, 0, 0);
+          ctx.filter = 'none';
+        }
+      }
+
+      // 创建 Canvas 元素
+      if (!canvasRef.current) {
+        const canvas = document.createElement('canvas');
+        canvas.style.position = 'absolute';
+        canvas.style.top = '0';
+        canvas.style.left = '0';
+        canvas.style.pointerEvents = 'none';
+        canvas.style.zIndex = '600';
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvasRef.current = canvas;
+
+        // 创建自定义图层
+        const CanvasLayer = L.Layer.extend({
+          onAdd: function (map) {
+            this._map = map;
+            const pane = map.getPane('overlayPane');
+            if (pane) {
+              pane.appendChild(canvas);
+            }
+            // 延迟一下确保地图已完全初始化
+            setTimeout(() => {
+              this._update();
+            }, 100);
+            map.on('moveend', this._update, this);
+            map.on('zoomend', this._update, this);
+            map.on('resize', this._update, this);
+          },
+          onRemove: function (map) {
+            const pane = map.getPane('overlayPane');
+            if (pane && canvas.parentNode === pane) {
+              pane.removeChild(canvas);
+            }
+            map.off('moveend', this._update, this);
+            map.off('zoomend', this._update, this);
+            map.off('resize', this._update, this);
+          },
+          _update: function () {
+            if (!this._map) return;
+            const container = this._map.getContainer();
+            if (!container) return;
+            canvas.width = container.offsetWidth;
+            canvas.height = container.offsetHeight;
+            drawHeatmap();
+          }
+        });
+
+        layerRef.current = new CanvasLayer();
+        layerRef.current.addTo(map);
+      } else {
+        // 如果 Canvas 已存在，直接更新
+        setTimeout(() => drawHeatmap(), 100);
+      }
+
+      // 监听地图变化
+      const updateHandler = () => {
+        setTimeout(() => drawHeatmap(), 100);
+      };
+
+      map.on('moveend', updateHandler);
+      map.on('zoomend', updateHandler);
 
       return () => {
-        // Safe cleanup
-        try {
-          map.removeLayer(heat);
-        } catch (e) {
-          console.warn('Heatmap cleanup error', e);
+        map.off('moveend', updateHandler);
+        map.off('zoomend', updateHandler);
+        if (layerRef.current) {
+          try {
+            map.removeLayer(layerRef.current);
+          } catch (e) {
+            console.warn('Heatmap cleanup error', e);
+          }
+          layerRef.current = null;
+        }
+        if (canvasRef.current && canvasRef.current.parentNode) {
+          canvasRef.current.parentNode.removeChild(canvasRef.current);
         }
       };
     }, [map, data, visible]);
+
+    return null;
+  }
+
+  // Radar Layer Component - 直接操作 Leaflet 图层避免闪烁
+  function RadarLayer({ tileUrl, visible, opacity = 0.7 }) {
+    const map = useMap();
+    const layerRef = useRef(null);
+
+    useEffect(() => {
+      if (!map) return;
+
+      // 如果不可见，移除图层
+      if (!visible || !tileUrl) {
+        if (layerRef.current) {
+          try {
+            map.removeLayer(layerRef.current);
+          } catch (e) {
+            console.warn('Radar layer cleanup error', e);
+          }
+          layerRef.current = null;
+        }
+        return;
+      }
+
+      // 如果图层已存在，只更新 URL 和 opacity，不重新创建
+      if (layerRef.current) {
+        try {
+          layerRef.current.setUrl(tileUrl);
+          layerRef.current.setOpacity(opacity);
+          // 强制刷新图层
+          layerRef.current.redraw();
+        } catch (e) {
+          console.warn('Radar layer update error', e);
+          // 如果更新失败，重新创建
+          try {
+            map.removeLayer(layerRef.current);
+          } catch (e2) { }
+          layerRef.current = null;
+        }
+      }
+
+      // 如果图层不存在，创建新图层
+      if (!layerRef.current) {
+        try {
+          const layer = L.tileLayer(tileUrl, {
+            opacity: opacity,
+            zIndex: 650,
+            attribution: '&copy; <a href="https://www.rainviewer.com">RainViewer</a>',
+            // 添加跨域和缓存控制
+            crossOrigin: true,
+            maxZoom: 18,
+            tileSize: 256,
+            zoomOffset: 0
+          });
+          layer.addTo(map);
+          layerRef.current = layer;
+        } catch (e) {
+          console.warn('Radar layer creation error', e);
+        }
+      }
+
+      return () => {
+        // 清理函数：只在组件卸载时移除图层
+        if (layerRef.current) {
+          try {
+            map.removeLayer(layerRef.current);
+          } catch (e) {
+            console.warn('Radar layer cleanup error', e);
+          }
+          layerRef.current = null;
+        }
+      };
+    }, [map, tileUrl, visible, opacity]);
 
     return null;
   }
@@ -609,6 +1174,10 @@ function WeatherMap() {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude, longitude } = pos.coords;
+
+        // 使用 flyToLocation 进行动画
+        flyToLocation([latitude, longitude]);
+
         setMapCenter([latitude, longitude]);
         await fetchWeatherByLatLon(latitude, longitude);
         setLoading(false);
@@ -638,6 +1207,10 @@ function WeatherMap() {
             const lon = parseFloat(js.longitude);
             if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
               setError(t('ipFallbackUsed'));
+
+              // 使用 flyToLocation 进行动画
+              flyToLocation([lat, lon]);
+
               setMapCenter([lat, lon]);
               await fetchWeatherByLatLon(lat, lon);
               setLoading(false);
@@ -682,13 +1255,23 @@ function WeatherMap() {
     // Helper to fetch Open-Meteo
     async function fetchOpenMeteo() {
       try {
-        const openMeteoUrl = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current_weather=true&hourly=relativehumidity_2m,temperature_2m,precipitation_probability&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto`;
+        const openMeteoUrl = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current_weather=true&hourly=relativehumidity_2m,temperature_2m,precipitation_probability,weathercode&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto`;
         const omr = await fetch(openMeteoUrl);
         if (omr.ok) {
           const omData = await omr.json();
           const current = omData?.current_weather ?? {};
+
+          // 调试信息：查看实际返回的数据
+          console.log('Open-Meteo current_weather:', {
+            weathercode: current?.weathercode,
+            time: current?.time,
+            temperature: current?.temperature
+          });
+
           let humidity = null;
           let rainProb = null;
+          let hourlyCode = null;
+
           if (omData?.hourly?.time) {
             const times = omData.hourly.time;
             let idx = times.indexOf(current.time);
@@ -703,10 +1286,27 @@ function WeatherMap() {
             if (omData.hourly.precipitation_probability) {
               rainProb = omData.hourly.precipitation_probability[idx] || 0;
             }
+            // 获取当前小时的 weathercode（可能更准确）
+            if (omData.hourly.weathercode) {
+              hourlyCode = omData.hourly.weathercode[idx];
+            }
           }
 
-          const code = current?.weathercode ?? null;
+          // 优先使用 hourly 的 weathercode，因为它可能更实时
+          // 如果 hourly 没有，则使用 current_weather 的
+          let code = hourlyCode ?? current?.weathercode ?? null;
+
+          // 调试信息：查看最终使用的代码
+          console.log('Weather code decision:', {
+            currentCode: current?.weathercode,
+            hourlyCode: hourlyCode,
+            finalCode: code,
+            rainProb: rainProb,
+            description: OM_WEATHER_CODE_DESCRIPTION[code]
+          });
+
           const description = OM_WEATHER_CODE_DESCRIPTION[code] ?? `code:${code}`;
+
           // Use known name if provided, otherwise geocode or fallback
           const cityName = knownCityName ?? (await reverseGeocode(lat, lon)) ?? `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
           const weatherArray = [{ description }];
@@ -724,30 +1324,76 @@ function WeatherMap() {
     // Helper to fetch Backend
     async function fetchBackend() {
       try {
-        // Only one attempt to backend
-        const res = await fetch(`https://backend1212.onrender.com/weather?lat=${lat}&lon=${lon}`);
+        let targetCity = knownCityName;
+        // If we don't have a known city name, try to reverse geocode
+        if (!targetCity) {
+          targetCity = await reverseGeocode(lat, lon);
+        }
+
+        // If still no city name, and we want to use backend, we might fail or try a fallback.
+        // But since the direct lat/lon endpoint /weather/current?lat=... is unreliable, 
+        // we skip backend if we can't find a name.
+        if (!targetCity) return null;
+
+        // Use the city name endpoint
+        const res = await fetch(`https://backend1212.onrender.com/weather/${encodeURIComponent(targetCity)}`);
+
         if (res.ok) {
           const json = await res.json();
           const d = json?.data ?? json?.result ?? json;
-          let city = d?.name ?? d?.city ?? d?.location?.name ?? 'Unknown';
+
+          let city = d?.city ?? d?.name ?? d?.location?.name ?? 'Unknown';
           let weatherArray = d?.weather ?? d?.weatherArray ?? [];
           let main = d?.main ?? d?.current ?? {};
+
           if (d?.current) {
             weatherArray = [{ description: d.current?.condition?.text ?? d.current?.weather_descriptions?.[0] }].filter(Boolean);
             const _windSpeed = d.current?.wind_kph ?? d.current?.wind?.speed ?? d.wind?.speed ?? d.wind_speed ?? d.current?.windspeed ?? null;
             const _windDir = d.current?.wind_degree ?? d.current?.wind_deg ?? d.current?.wind_dir ?? d.current?.winddir ?? d.wind?.deg ?? d.winddirection ?? null;
             main = { temp: d.current?.temp_c ?? d.current?.temp, humidity: d.current?.humidity, windSpeed: _windSpeed, windDirection: _windDir };
             city = city === 'Unknown' ? (d.location?.name ?? 'Unknown') : city;
+          } else {
+            // Handle OpenWeatherMap style response if proxied directly
+            // d.name is usually the station name, d.city (from our backend wrapper) might be the requested city
+            if (d.city && d.city !== 'current') city = d.city;
+            else if (d.name) city = d.name;
           }
+
           if (knownCityName) city = knownCityName;
-          else if (!city || city === 'Unknown') city = `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+
+          // Ensure we have weather data
+          if (!main.temp && main.temp !== 0 && !weatherArray.length) {
+            console.warn('Backend response missing weather data', d);
+            return null;
+          }
 
           return { city, weatherArray, main, lat, lon, raw: d, source: 'backend' };
         }
       } catch (err) {
-        console.warn('Backend lat/lon request failed', err);
+        console.warn('Backend request failed', err);
       }
       return null;
+    }
+
+    // Helper to sanitize city name (remove duplicates like "Tokyo, Tokyo")
+    function sanitizeCityName(name) {
+      if (!name) return name;
+      // Allow comma or space as separator
+      const parts = name.split(/[,，\s]+/);
+      const unique = [];
+      const seen = new Set();
+      for (const p of parts) {
+        const cleanP = p.trim();
+        if (cleanP && !seen.has(cleanP)) {
+          seen.add(cleanP);
+          unique.push(cleanP);
+        }
+      }
+      // If original had commas, join with commas. If spaces, spaces.
+      // Default to known style or just return original if no dupe found?
+      if (unique.length === parts.length) return name;
+
+      return unique.join(name.includes(',') ? ', ' : ' ');
     }
 
     try {
@@ -762,20 +1408,34 @@ function WeatherMap() {
         if (!result) result = await fetchBackend();
       }
 
-      if (result) return result;
+      if (result) {
+        result.city = sanitizeCityName(result.city);
+        return result;
+      }
 
       // No provider succeeded
-      return { city: knownCityName ?? `${lat.toFixed(2)}, ${lon.toFixed(2)}`, weatherArray: [], main: {}, lat, lon, raw: {}, source: 'none' };
+      return { city: sanitizeCityName(knownCityName ?? `${lat.toFixed(2)}, ${lon.toFixed(2)}`), weatherArray: [], main: {}, lat, lon, raw: {}, source: 'none' };
     } catch (e) {
       console.error('getWeatherData failed', e);
-      return { city: knownCityName ?? `${lat.toFixed(2)}, ${lon.toFixed(2)}`, weatherArray: [], main: {}, lat, lon, raw: { error: String(e) }, source: 'error' };
+      return { city: sanitizeCityName(knownCityName ?? `${lat.toFixed(2)}, ${lon.toFixed(2)}`), weatherArray: [], main: {}, lat, lon, raw: { error: String(e) }, source: 'error' };
     }
   }
 
+  // 优化 fetchAllWards，批量更新状态而不是逐个更新
   async function fetchAllWards() {
     const wardList = WARDS_23;
-    // initialize list with loading status
-    setWardWeatherList(wardList.map(w => ({ id: w.id, name: w.name, lat: w.lat, lon: w.lon, status: 'idle', weatherArray: [], main: {}, raw: null, source: null })));
+    // 初始化列表
+    setWardWeatherList(wardList.map(w => ({
+      id: w.id,
+      name: w.name,
+      lat: w.lat,
+      lon: w.lon,
+      status: 'idle',
+      weatherArray: [],
+      main: {},
+      raw: null,
+      source: null
+    })));
 
     // Simple cache helpers
     function loadCache() {
@@ -790,38 +1450,57 @@ function WeatherMap() {
     }
 
     const cache = loadCache();
-    // Use strictly sequential processing to avoid Open-Meteo rate limits (429)
-    // and network congestion.
+    const updates = []; // 收集所有更新
+
+    // 使用批量更新，减少重新渲染次数
     for (const w of wardList) {
-      // If cached and fresh, use it
       const cached = cache?.[w.id];
       if (cached && (Date.now() - cached.ts) < CACHE_TTL) {
-        setWardWeatherList(prev => prev.map(p => p.id === w.id ? ({ ...p, ...cached.data, status: 'done' }) : p));
+        updates.push({ id: w.id, data: { ...cached.data, status: 'done' } });
         continue;
       }
 
-      // mark loading
-      setWardWeatherList(prev => prev.map(p => p.id === w.id ? ({ ...p, status: 'loading' }) : p));
+      updates.push({ id: w.id, data: { status: 'loading' } });
 
       try {
-        // Add a small delay to respect API rate limits
         await new Promise(r => setTimeout(r, 200));
-
-        // Pass a timeout signal to getWeatherData if possible, or just rely on internal fetch
-        // Since we can't easily change getWeatherData signature without larger refactor, 
-        // we assume getWeatherData handles one request.
-        // But we want to ensure we don't proceed too fast.
         const r = await getWeatherData(w.lat, w.lon, w.name);
-
         const entry = { ...r, id: w.id, name: w.name };
-        setWardWeatherList(prev => prev.map(p => p.id === w.id ? ({ ...p, ...entry, status: 'done' }) : p));
-
-        // cache it
+        updates.push({ id: w.id, data: { ...entry, status: 'done' } });
         cache[w.id] = { ts: Date.now(), data: entry };
         saveCache(cache);
       } catch (e) {
-        setWardWeatherList(prev => prev.map(p => p.id === w.id ? ({ ...p, status: 'error', raw: { error: String(e) } }) : p));
+        updates.push({ id: w.id, data: { status: 'error', raw: { error: String(e) } } });
       }
+
+      // 每5个更新批量应用一次，而不是每个都更新
+      if (updates.length >= 5) {
+        setWardWeatherList(prev => {
+          const next = [...prev];
+          updates.forEach(update => {
+            const idx = next.findIndex(p => p.id === update.id);
+            if (idx !== -1) {
+              next[idx] = { ...next[idx], ...update.data };
+            }
+          });
+          return next;
+        });
+        updates.length = 0; // 清空数组
+      }
+    }
+
+    // 应用剩余的更新
+    if (updates.length > 0) {
+      setWardWeatherList(prev => {
+        const next = [...prev];
+        updates.forEach(update => {
+          const idx = next.findIndex(p => p.id === update.id);
+          if (idx !== -1) {
+            next[idx] = { ...next[idx], ...update.data };
+          }
+        });
+        return next;
+      });
     }
   }
 
@@ -840,8 +1519,22 @@ function WeatherMap() {
         setError('天気データを取得できません（すべてのソースが失敗しました）');
       }
 
-      // Auto-open popup
-      setTimeout(() => { try { if (markerRef.current) markerRef.current.openPopup(); } catch (e) { } }, 300);
+      // 优化 popup 打开时机，使用 requestAnimationFrame 避免布局抖动
+      /*
+      // Removed auto-open popup here to prevent conflict with flyTo animation.
+      // Popup will be handled by MapViewSetter's moveend event or manual interaction.
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          try {
+            if (markerRef.current) {
+              markerRef.current.openPopup();
+            }
+          } catch (e) {
+            console.warn('Auto-open popup error', e);
+          }
+        }, 100); // 稍微延迟，确保 DOM 已更新
+      });
+      */
 
     } catch (err) {
       console.error('Failed to fetch weather:', err);
@@ -864,6 +1557,10 @@ function WeatherMap() {
           const { lat, lon } = arr[0];
           const latNum = parseFloat(lat);
           const lonNum = parseFloat(lon);
+
+          // 直接调用地图动画，不依赖 state 变化
+          flyToLocation([latNum, lonNum]);
+
           setMapCenter([latNum, lonNum]);
           await fetchWeatherByLatLon(latNum, lonNum);
         } else {
@@ -1087,49 +1784,33 @@ function WeatherMap() {
           top: bannerAlert ? bannerHeight + 18 : 30
         }}
       >
-        <div className="sidebar-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'space-between', width: '100%' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div className="glass-icon">
-                <CloudSun size={20} color="#2563eb" />
-              </div>
-              <h1 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, background: 'linear-gradient(to right, #1e293b, #334155)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+        {/* Modern Header */}
+        <div className="sidebar-header-modern">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div className="sidebar-icon-wrapper">
+              <CloudSun size={22} color="#2563eb" />
+            </div>
+            <div>
+              <h1 className="sidebar-title-modern">
                 {t('title')}
               </h1>
+              <div className="sidebar-subtitle">東京の天気情報</div>
             </div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <button className={`btn ${lang === 'zh' ? 'active' : ''}`} onClick={() => setLanguage('zh')} title="中文">中文</button>
-              <button className={`btn ${lang === 'ja' ? 'active' : ''}`} onClick={() => setLanguage('ja')} title="日本語">日本語</button>
-              <button className={`btn ${lang === 'en' ? 'active' : ''}`} onClick={() => setLanguage('en')} title="English">EN</button>
-            </div>
-
-            <button
-              onClick={() => setSidebarOpen(false)}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                padding: 4,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#64748b',
-                transition: 'color 0.2s'
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
-              onMouseLeave={(e) => e.currentTarget.style.color = '#64748b'}
-              title={t('close')}
-            >
-              <span style={{ fontSize: '1.2rem' }}>×</span>
-            </button>
           </div>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="sidebar-close-btn"
+            title={t('close')}
+          >
+            <span>×</span>
+          </button>
         </div>
 
-        {/* Search Box */}
-        <div className="search-box">
-          <Search className="search-icon" />
+        {/* Search Box - Modern Design */}
+        <div className="search-box-modern">
+          <Search className="search-icon-modern" size={18} />
           <input
-            className="search-input"
+            className="search-input-modern"
             placeholder={t('searchPlaceholder')}
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
@@ -1137,110 +1818,184 @@ function WeatherMap() {
           />
         </div>
 
-        {/* Status Card */}
-        <div className="control-group">
-          <div className="control-label">{t('statusLabel')}</div>
-          <div style={{ fontSize: '0.9rem', marginBottom: 8 }}>
-            {loading ? <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div className="spinner" /> {t('loading')}</div> :
-              error ? <span style={{ color: '#ef4444' }}>⚠️ {error}</span> :
-                (weather ? <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MapPin size={16} /> {weather.city}</span> : t('clickToShow'))}
+        {/* Current Location Card - Modern */}
+        <div className="card-modern">
+          <div className="card-header">
+            <MapPin size={16} color="#64748b" />
+            <span className="card-title">現在地</span>
           </div>
-          <button className="btn" onClick={handleLocateMe} style={{ width: '100%', justifyContent: 'center' }}>
-            <Navigation size={14} /> {t('locate')}
+          <div className="card-content">
+            {loading ? (
+              <div className="status-loading">
+                <div className="spinner-small" />
+                <span>{t('loading')}</span>
+              </div>
+            ) : error ? (
+              <div className="status-error">
+                <AlertTriangle size={14} />
+                <span>{error}</span>
+              </div>
+            ) : weather ? (
+              <div className="location-info">
+                <div className="location-name">{weather.city}</div>
+                {weather.main?.temp !== undefined && (
+                  <div className="location-temp">{Math.round(weather.main.temp)}°C</div>
+                )}
+              </div>
+            ) : (
+              <div className="status-placeholder">{t('clickToShow')}</div>
+            )}
+          </div>
+          <button className="btn-modern-primary" onClick={handleLocateMe}>
+            <Navigation size={16} />
+            <span>{t('locate')}</span>
           </button>
         </div>
 
-        {/* Filters & Controls */}
-        <div className="control-group">
-          <div className="control-label">{t('dataSource')}</div>
-          <div className="button-group">
+        {/* Data Source - Modern Toggle */}
+        <div className="card-modern">
+          <div className="card-header">
+            <Database size={16} color="#64748b" />
+            <span className="card-title">{t('dataSource')}</span>
+          </div>
+          <div className="toggle-group">
             <button
-              className={`btn ${dataSourcePreference === 'open-meteo-first' ? 'active' : ''}`}
+              className={`toggle-btn ${dataSourcePreference === 'open-meteo-first' ? 'active' : ''}`}
               onClick={() => { setDataSourcePreference('open-meteo-first'); localStorage.setItem('weatherSourcePref', 'open-meteo-first'); fetchAllWards(); }}
             >
-              <Database size={14} /> Open-Meteo
+              Open-Meteo
             </button>
             <button
-              className={`btn ${dataSourcePreference === 'backend-first' ? 'active' : ''}`}
+              className={`toggle-btn ${dataSourcePreference === 'backend-first' ? 'active' : ''}`}
               onClick={() => { setDataSourcePreference('backend-first'); localStorage.setItem('weatherSourcePref', 'backend-first'); fetchAllWards(); }}
             >
-              <Server size={14} /> {t('backend')}
+              <Server size={14} />
+              {t('backend')}
             </button>
           </div>
         </div>
 
-        <div className="control-group">
-          <div className="control-label">{t('displayContentLabel')}</div>
-          <div className="button-group">
+        {/* Display Mode - Modern Toggle */}
+        <div className="card-modern">
+          <div className="card-header">
+            <LayoutTemplate size={16} color="#64748b" />
+            <span className="card-title">{t('displayContentLabel')}</span>
+          </div>
+          <div className="toggle-group">
             <button
-              className={`btn ${displayMode === 'summary' ? 'active' : ''}`}
+              className={`toggle-btn ${displayMode === 'summary' ? 'active' : ''}`}
               onClick={() => { setDisplayMode('summary'); localStorage.setItem('weatherDisplayMode', 'summary'); }}
             >
               概要
             </button>
             <button
-              className={`btn ${displayMode === 'detail' ? 'active' : ''}`}
+              className={`toggle-btn ${displayMode === 'detail' ? 'active' : ''}`}
               onClick={() => { setDisplayMode('detail'); localStorage.setItem('weatherDisplayMode', 'detail'); }}
             >
               詳細
             </button>
           </div>
-          <div className="control-label">{t('mapLayers')}</div>
-          <div className="button-group">
+        </div>
+
+        {/* Map Layers - Modern Design */}
+        <div className="card-modern">
+          <div className="card-header">
+            <Monitor size={16} color="#64748b" />
+            <span className="card-title">{t('mapLayers')}</span>
+          </div>
+          <div className="layer-controls">
             <button
-              className={`btn ${showRadar ? 'active' : ''}`}
+              className={`layer-btn ${showRadar ? 'active' : ''}`}
               onClick={() => setShowRadar(!showRadar)}
             >
-              <Umbrella size={14} /> {t('radar')}
+              <Umbrella size={18} />
+              <span>{t('radar')}</span>
             </button>
-            {showRadar && radarTimestamps.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
+            <button
+              className={`layer-btn ${showHeatmap ? 'active' : ''}`}
+              onClick={() => setShowHeatmap(!showHeatmap)}
+            >
+              <Thermometer size={18} />
+              <span>{t('heatmap')}</span>
+            </button>
+            <button
+              className={`layer-btn ${is3DMode ? 'active' : ''}`}
+              onClick={() => setIs3DMode(!is3DMode)}
+            >
+              <MapPin size={18} />
+              <span>{t('satellite')}</span>
+            </button>
+          </div>
+
+          {/* Radar Controls - Enhanced */}
+          {showRadar && radarTimestamps.length > 0 && (
+            <div className="radar-controls-modern">
+              <div className="radar-controls-header">
+                <div className="radar-time-display">
+                  {radarTimestamps[radarIndex] && (
+                    <>
+                      {new Date(radarTimestamps[radarIndex].time * 1000).toLocaleString('ja-JP', {
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                      <span className="radar-frame-count">({radarIndex + 1}/{radarTimestamps.length})</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="radar-controls-actions">
                 <button
-                  className="btn"
-                  style={{ padding: '4px 8px', height: 28 }}
+                  className="radar-btn-small"
                   onClick={() => setIsRadarPlaying(!isRadarPlaying)}
                 >
                   {isRadarPlaying ? <Pause size={14} /> : <Play size={14} />}
                 </button>
-                <div style={{ display: 'flex', gap: 1 }}>
-                  {radarTimestamps.map((_, i) => (
-                    <div key={i} style={{
-                      width: 3, height: 12,
-                      borderRadius: 1,
-                      background: i === radarIndex ? '#3b82f6' : '#e2e8f0',
-                      transition: 'background 0.2s'
-                    }} />
-                  ))}
-                </div>
+                <button
+                  className="radar-btn-small"
+                  onClick={() => {
+                    setIsRadarPlaying(false);
+                    setRadarIndex(0);
+                  }}
+                  title="最初に戻る"
+                >
+                  ↺
+                </button>
+                <select
+                  value={radarPlaySpeed}
+                  onChange={(e) => setRadarPlaySpeed(Number(e.target.value))}
+                  className="radar-speed-select"
+                >
+                  <option value={500}>0.5秒</option>
+                  <option value={1000}>1秒</option>
+                  <option value={2000}>2秒</option>
+                  <option value={3000}>3秒</option>
+                </select>
               </div>
-            )}
-            <button
-              className={`btn ${showHeatmap ? 'active' : ''}`}
-              onClick={() => setShowHeatmap(!showHeatmap)}
-            >
-              <Thermometer size={14} /> {t('heatmap')}
-            </button>
-            <button
-              className={`btn ${is3DMode ? 'active' : ''}`}
-              onClick={() => setIs3DMode(!is3DMode)}
-            >
-              <MapPin size={14} /> {t('satellite')}
-            </button>
-          </div>
+              <div className="radar-progress-modern">
+                {radarTimestamps.map((_, i) => (
+                  <div
+                    key={i}
+                    className={`radar-progress-dot ${i === radarIndex ? 'current' : i < radarIndex ? 'played' : ''
+                      }`}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Heatmap Legend */}
+        {/* Heatmap Legend - Modern */}
         {showHeatmap && (
-          <div className="control-group">
-            <div className="control-label">{t('heatmapLegend')}</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{
-                height: 12,
-                width: '100%',
-                borderRadius: 6,
-                background: 'linear-gradient(to right, #0000ff, #00ffff, #00ff00, #ffff00, #ff0000)'
-              }} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748b' }}>
+          <div className="card-modern">
+            <div className="card-header">
+              <Thermometer size={16} color="#64748b" />
+              <span className="card-title">{t('heatmapLegend')}</span>
+            </div>
+            <div className="heatmap-legend-modern">
+              <div className="heatmap-gradient" />
+              <div className="heatmap-labels">
                 <span>0°C</span>
                 <span>10°</span>
                 <span>20°</span>
@@ -1251,23 +2006,32 @@ function WeatherMap() {
           </div>
         )}
 
-        {/* 23 Wards Progress */}
-        <div className="control-group">
-          <div className="control-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>23区の読み込み進捗</span>
-            <span>{wardWeatherList.filter(w => w.status === 'done').length} / {wardWeatherList.length || 23}</span>
+        {/* 23 Wards Progress - Modern */}
+        <div className="card-modern">
+          <div className="card-header">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <MapPin size={16} color="#64748b" />
+                <span className="card-title">23区の読み込み</span>
+              </div>
+              <span className="progress-count">
+                {wardWeatherList.filter(w => w.status === 'done').length} / {wardWeatherList.length || 23}
+              </span>
+            </div>
           </div>
-          <div className="wards-progress">
+          <div className="progress-bar-modern">
             <div
-              className="wards-progress-bar"
-              style={{ width: `${(wardWeatherList.filter(w => w.status === 'done').length / 23) * 100}%` }}
+              className="progress-bar-fill"
+              style={{
+                width: `${(wardWeatherList.filter(w => w.status === 'done').length / 23) * 100}%`
+              }}
             />
           </div>
-          <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-            <button className="btn" onClick={async () => { localStorage.removeItem('wardsWeatherCache'); fetchAllWards(); }}>
+          <div className="card-actions">
+            <button className="btn-modern-secondary" onClick={async () => { localStorage.removeItem('wardsWeatherCache'); fetchAllWards(); }}>
               {t('clearCache')}
             </button>
-            <button className="btn" onClick={() => fetchAllWards()}>
+            <button className="btn-modern-secondary" onClick={() => fetchAllWards()}>
               {t('refreshList')}
             </button>
           </div>
@@ -1299,6 +2063,7 @@ function WeatherMap() {
           style={{ height: "100%", width: "100%" }}
         >
           <MapViewSetter center={mapCenter} />
+          <MapRefSetter />
           <MapClickHandler />
           <HeatmapLayer data={wardWeatherList} visible={showHeatmap} />
 
@@ -1307,12 +2072,20 @@ function WeatherMap() {
             key={is3DMode ? 'satellite' : 'light'}
             url={is3DMode
               ? "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-              : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+              : "https://tile.openstreetmap.jp/{z}/{x}/{y}.png"
             }
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | &copy; <a href="https://www.openstreetmap.jp/">OpenStreetMap Japan</a>'
+            subdomains={[]}
           />
 
-          {/* Radar Layer */}
+          {/* Radar Layer - 使用自定义组件避免闪烁 */}
+          <RadarLayer
+            tileUrl={radarTile}
+            visible={showRadar}
+            opacity={0.7}
+          />
+
+          {/* Banner Alert (this was incorrectly placed under Radar Layer comment) */}
           {bannerAlert && (
             <div style={{
               position: 'absolute',
@@ -1341,6 +2114,7 @@ function WeatherMap() {
               </div>
             </div>
           )}
+
           {wardWeatherList.map(w => {
             const temp = w.main?.temp ?? null;
             const desc = (w.main?.desc || '').toString();
