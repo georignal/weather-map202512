@@ -369,28 +369,36 @@ body {
   }
 }
 
-/* Banner source button */
+/* Banner source button - 灾害信息条按钮样式 */
 .banner-source-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  color: var(--text-main);
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(16, 24, 40, 0.06);
-  padding: 6px 8px;
-  border-radius: 6px;
+  gap: 4px;
+  color: white;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  padding: 4px 10px;
+  border-radius: 4px;
   text-decoration: none;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.1s ease;
+  flex-shrink: 0;
 }
 
 .banner-source-btn:hover {
-  background: white;
-  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.banner-source-btn:active {
+  transform: scale(0.96);
 }
 
 .banner-source-btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.08), 0 6px 14px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.6);
 }
 
 .location-fab:hover {
